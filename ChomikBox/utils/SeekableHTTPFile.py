@@ -72,6 +72,9 @@ class SeekableHTTPFile(IOBase):
         if amount < 0:
             content = self._r.raw.read()
         else:
-            content = self._r.raw.read(amount)
+            try:
+                content = self._r.raw.read(amount)
+            except:
+                content = self._r.raw.read(amount)
         self._pos += len(content)
         return content

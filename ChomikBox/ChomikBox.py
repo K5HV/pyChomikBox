@@ -111,14 +111,14 @@ class ChomikFile(object):
     def path(self):
         return self.parent_folder.path + self.name
 
-    def rename(self, name, description):
-        return self.chomik.rename_file(name, description, self)
+    # def rename(self, name, description):
+    #     return self.chomik.rename_file(name, description, self)
 
-    def move(self, to_folder):
-        return self.chomik.move_file(self, to_folder)
+    # def move(self, to_folder):
+    #     return self.chomik.move_file(self, to_folder)
 
-    def remove(self):
-        return self.chomik.remove_file(self)
+    # def remove(self):
+    #     return self.chomik.remove_file(self)
 
     def download(self, file_like, progress_callback=None):
         return ChomikDownloader(self.chomik, self, file_like, progress_callback)
@@ -237,7 +237,7 @@ class ChomikFolder(object):
 
 
 class Chomik(ChomikFolder):
-    def __init__(self, name, password, requests_session=None, ssl=True):
+    def __init__(self, name, password, requests_session=None, ssl=True, proxies=dict()):
         assert isinstance(name, ustr)
         assert isinstance(password, ustr)
         assert isinstance(requests_session, requests.Session) or requests_session is None
@@ -249,11 +249,22 @@ class Chomik(ChomikFolder):
         self._last_action = datetime.now()
         self._folder_cache = {}
         self.logger = logging.getLogger('ChomikBox.Chomik.{}'.format(name))
+        self._proxies = proxies
         # TODO: init adult & gallery_view properly
         ChomikFolder.__init__(self, self, name, 0, None, False, False, False, None)
 
     def __repr__(self):
         return '<ChomikBox.Chomik: {n}>'.format(n=self.name)
+
+    def send_post(self, url, data, headers, retries=0):
+        try:
+            resp = self.sess.post(url, data, headers=headers)
+        except:
+            retries+=1
+            if retries > 25:
+                raise
+            resp = self.send_post(url, data, headers, retries=retries)
+        return resp
 
     def _send_action(self, action, data):
         self.logger.debug('Sending action: "{}"'.format(action))
@@ -266,7 +277,11 @@ class Chomik(ChomikFolder):
         headers = {'SOAPAction': 'http://chomikuj.pl/IChomikBoxService/{}'.format(action), 'User-Agent': 'Mozilla/5.0',
                    'Content-Type': 'text/xml;charset=utf-8', 'Accept-Language': 'en-US,*'}
         data = ChomikSOAP.pack(action, data)
-        resp = self.sess.post('http{}://box.chomikuj.pl/services/ChomikBoxService.svc'.format('s' if self.ssl else ''), data, headers=headers)
+        if action == 'Auth':
+            self.sess.proxies = self._proxies
+        else:
+            self.sess.proxies = dict()
+        resp = self.send_post('http{}://box.chomikuj.pl/services/ChomikBoxService.svc'.format('s' if self.ssl else ''), data, headers=headers)
         resp = ChomikSOAP.unpack(resp.text)['{}Response'.format(action)]['{}Result'.format(action)]
         if 'a:hamsterName' in resp and isinstance(resp['a:hamsterName'], ustr):
             self.name = resp['a:hamsterName']
@@ -284,14 +299,14 @@ class Chomik(ChomikFolder):
         self.logger.debug('Action sent: "{}"'.format(action))
         return resp
 
-    def _send_web_action(self, action, data):
-        self.logger.debug('Sending web action: "{}"'.format(action))
-        headers = {'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded', 'Accept-Language': 'en-US,*'}
-        resp = self.sess_web.post('http{}://chomikuj.pl/action/{}'.format('s' if self.ssl else '', action), data=data, headers=headers)
-        try:
-            return resp.json()
-        except ValueError:
-            return False
+    # def _send_web_action(self, action, data):
+    #     self.logger.debug('Sending web action: "{}"'.format(action))
+    #     headers = {'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/x-www-form-urlencoded', 'Accept-Language': 'en-US,*'}
+    #     resp = self.sess_web.post('http{}://chomikuj.pl/action/{}'.format('s' if self.ssl else '', action), data=data, headers=headers)
+    #     try:
+    #         return resp.json()
+    #     except ValueError:
+    #         return False
 
     def login(self):
         data = OrderedDict([['name', self.name], ['passHash', md5(self.__password.encode('utf-8')).hexdigest()],
@@ -303,8 +318,8 @@ class Chomik(ChomikFolder):
 
         # Web login
         # TODO: add ability to pass sess_web as parameter
-        self.sess_web = requests.session()
-        self.sess_web.get('http{}://chomikuj.pl/chomik/chomikbox/LoginFromBox'.format('s' if self.ssl else ''), params={'t': self.__token, 'returnUrl': self.name})
+        # self.sess_web = requests.session()
+        # self.sess_web.get('http{}://chomikuj.pl/chomik/chomikbox/LoginFromBox'.format('s' if self.ssl else ''), params={'t': self.__token, 'returnUrl': self.name})
 
     def logout(self):
         self._send_action('Logout', {'token': self.__token})
@@ -524,61 +539,61 @@ class Chomik(ChomikFolder):
         folder.password = data['a:folderDetails']['password'] if data['a:folderDetails']['passwd'] == 'true' else None
         return folder.password == password
 
-    def rename_file(self, name, description, file):
-        assert isinstance(name, ustr)
-        assert isinstance(description, ustr)
-        assert isinstance(file, ChomikFile)
+    # def rename_file(self, name, description, file):
+    #     assert isinstance(name, ustr)
+    #     assert isinstance(description, ustr)
+    #     assert isinstance(file, ChomikFile)
 
-        if name == '':
-            return False
+    #     if name == '':
+    #         return False
 
-        # Cut extension
-        name = os.path.splitext(name)[0]
+    #     # Cut extension
+    #     name = os.path.splitext(name)[0]
 
-        self.logger.debug('Renaming file {f} to {n}'.format(f=file.file_id, n=name))
-        data = {
-            'FileId':      file.file_id,
-            'Name':        name,
-            'Description': description
-        }
-        resp = self._send_web_action('FileDetails/EditNameAndDescAction', data)
-        if resp and resp['IsSuccess']:
-            file.name = name + os.path.splitext(file.name)[1]
-            return True
-        return False
+    #     self.logger.debug('Renaming file {f} to {n}'.format(f=file.file_id, n=name))
+    #     data = {
+    #         'FileId':      file.file_id,
+    #         'Name':        name,
+    #         'Description': description
+    #     }
+    #     resp = self._send_web_action('FileDetails/EditNameAndDescAction', data)
+    #     if resp and resp['IsSuccess']:
+    #         file.name = name + os.path.splitext(file.name)[1]
+    #         return True
+    #     return False
 
-    def move_file(self, file, to_folder):
-        assert isinstance(file, ChomikFile)
-        assert isinstance(to_folder, ChomikFolder)
+    # def move_file(self, file, to_folder):
+    #     assert isinstance(file, ChomikFile)
+    #     assert isinstance(to_folder, ChomikFolder)
 
-        self.logger.debug('Moving file {f} to {tf}'.format(f=file.file_id, tf=to_folder.folder_id))
-        data = {
-            'ChomikName': self.name,
-            'FolderId': file.parent_folder.folder_id,
-            'FileId':   file.file_id,
-            'FolderTo': to_folder.folder_id
-        }
-        resp = self._send_web_action('FileDetails/MoveFileAction', data)
-        if resp and resp['IsSuccess']:
-            file.parent_folder = to_folder
-            return True
-        return False
+    #     self.logger.debug('Moving file {f} to {tf}'.format(f=file.file_id, tf=to_folder.folder_id))
+    #     data = {
+    #         'ChomikName': self.name,
+    #         'FolderId': file.parent_folder.folder_id,
+    #         'FileId':   file.file_id,
+    #         'FolderTo': to_folder.folder_id
+    #     }
+    #     resp = self._send_web_action('FileDetails/MoveFileAction', data)
+    #     if resp and resp['IsSuccess']:
+    #         file.parent_folder = to_folder
+    #         return True
+    #     return False
 
-    def remove_file(self, file):
-        assert isinstance(file, ChomikFile)
+    # def remove_file(self, file):
+    #     assert isinstance(file, ChomikFile)
 
-        self.logger.debug('Removing file {f}'.format(f=file.file_id))
-        data = {
-            'ChomikName': self.name,
-            'FolderId': file.parent_folder.folder_id,
-            'FileId':   file.file_id,
-            'FolderTo': 0
-        }
-        resp = self._send_web_action('FileDetails/DeleteFileAction', data)
-        if resp and resp['IsSuccess']:
-            del file
-            return True
-        return False
+    #     self.logger.debug('Removing file {f}'.format(f=file.file_id))
+    #     data = {
+    #         'ChomikName': self.name,
+    #         'FolderId': file.parent_folder.folder_id,
+    #         'FileId':   file.file_id,
+    #         'FolderTo': 0
+    #     }
+    #     resp = self._send_web_action('FileDetails/DeleteFileAction', data)
+    #     if resp and resp['IsSuccess']:
+    #         del file
+    #         return True
+    #     return False
 
     def upload_file(self, file_like_obj, name=None, progress_callback=None, folder=None):
         if name is None:
