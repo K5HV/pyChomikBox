@@ -266,6 +266,17 @@ class Chomik(ChomikFolder):
             resp = self.send_post(url, data, headers, retries=retries)
         return resp
 
+    def send_head(self, url, retries=0):
+        try:
+            self.logger.debug('Retries: "{}", URL: "{}'.format(retries, url))
+            resp = self.sess.head(url)
+        except:
+            retries+=1
+            if retries > 5:
+                raise
+            resp = self.send_head(url, retries=retries)
+        return resp
+
     def _send_action(self, action, data):
         self.logger.debug('Sending action: "{}"'.format(action))
         if action != 'Auth':
@@ -752,7 +763,7 @@ class ChomikDownloader(object):
 
         self.chomik, self.chomik_file, self.save_file, self.chunk_size = chomik, chomik_file, save_file, chunk_size
         self.paused, self.finished, self.started, self.bytes_downloaded = False, False, False, 0
-        self.download_size = int(self.chomik.sess.head(chomik_file.url).headers["Content-Length"])
+        self.download_size = int(self.chomik.send_head(chomik_file.url).headers["Content-Length"])
         self.progress_callback = progress_callback
 
     @property

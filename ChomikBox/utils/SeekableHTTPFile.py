@@ -5,6 +5,15 @@ import requests
 
 # TODO: fallback file name from url
 
+def send_head(url, requests_session, headers, timeout, retries=0):
+    try:
+        resp = requests_session.head(url, headers=headers, timeout=timeout)
+    except:
+        retries+=1
+        if retries > 5:
+            raise
+        resp = send_head(url, requests_session, headers, timeout, retries)
+    return resp
 
 class SeekableHTTPFile(IOBase):
     # a bit based on https://github.com/valgur/pyhttpio
@@ -14,7 +23,8 @@ class SeekableHTTPFile(IOBase):
         self.sess = requests_session if requests_session is not None else requests.session()
         self._seekable = False
         self.timeout = timeout
-        f = self.sess.head(url, headers={'Range': 'bytes=0-'}, timeout=timeout)
+        # f = self.sess.head(url, headers={'Range': 'bytes=0-'}, timeout=timeout)
+        f = send_head(url=url, requests_session=self.sess, headers={'Range': 'bytes=0-'}, timeout=timeout)
         if f.status_code == 206 and 'Content-Range' in f.headers:
             self._seekable = True
         self.len = int(f.headers["Content-Length"])
