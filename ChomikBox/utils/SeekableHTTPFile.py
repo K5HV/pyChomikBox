@@ -3,6 +3,8 @@ import cgi
 
 import requests
 
+import logging
+
 # TODO: fallback file name from url
 
 def send_head(url, requests_session, headers, timeout, retries=0):
@@ -13,6 +15,16 @@ def send_head(url, requests_session, headers, timeout, retries=0):
         if retries > 5:
             raise
         resp = send_head(url, requests_session, headers, timeout, retries)
+    return resp
+
+def send_get(url, requests_session, headers, timeout, stream=False, retries=0):
+    try:
+        resp = requests_session.get(url, headers=headers, stream=stream, timeout=timeout)
+    except:
+        retries+=1
+        if retries > 5:
+            raise
+        resp = send_get(url, requests_session, headers, timeout, stream, retries)
     return resp
 
 class SeekableHTTPFile(IOBase):
@@ -58,7 +70,7 @@ class SeekableHTTPFile(IOBase):
         if self._r is not None:
             self._r.close()
         if self._seekable:
-            self._r = self.sess.get(self.url, headers={'Range': 'bytes={}-'.format(self._pos)}, stream=True, timeout=30)
+            self._r = send_get(url=self.url, requests_session=self.sess, headers={'Range': 'bytes={}-'.format(self._pos)}, stream=True, timeout=30)
         else:
             self._pos = 0
             self._r = self.sess.get(self.url, stream=True, timeout=self.timeout)
