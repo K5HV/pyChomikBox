@@ -196,9 +196,17 @@ class ChomikFolder(object):
 
     def get(self, name, case_sensitive=True):
         assert isinstance(name, ustr)
+        for cached in self.chomik._cache:
+            if self.path+name+'/' == cached['Path']:
+                if (datetime.now() - cached['Time']).total_seconds() < 300:
+                    return cached['File']
+                else:
+                    self.chomik._cache.remove(cached)
+                    # break
         found = self.get_folder(name, case_sensitive)
         if found is None:
             found = self.get_file(name, case_sensitive)
+        self.chomik._cache.append({'Path': self.path+name+'/', 'File': found, 'Time': datetime.now()})
         return found
 
     @property
@@ -250,6 +258,7 @@ class Chomik(ChomikFolder):
         self._folder_cache = {}
         self.logger = logging.getLogger('ChomikBox.Chomik.{}'.format(name))
         self._proxies = proxies
+        self._cache = list()
         # TODO: init adult & gallery_view properly
         ChomikFolder.__init__(self, self, name, 0, None, False, False, False, None)
 
@@ -358,6 +367,7 @@ class Chomik(ChomikFolder):
                             free_files[a['name']] = []
                         free_files[a['name']].append(f)
                         break
+            self.chomik._cache.append({'Path': f.path+'/', 'File': f, 'Time': datetime.now()})
             return f
 
         def files_gen(data):
@@ -426,6 +436,8 @@ class Chomik(ChomikFolder):
         resp = self._send_action('Folders', a_data)
         resp = resp['a:folder']['folders']
 
+        for f in list(folders_gen(resp)):
+            self.chomik._cache.append({'Path': f.path, 'File': f, 'Time': datetime.now()})
         return list(folders_gen(resp))
 
     def get_path(self, path, case_sensitive=True):
